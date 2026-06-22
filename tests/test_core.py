@@ -177,3 +177,34 @@ def test_discord_embed_builder_adds_fields_without_constructor_fields():
     embed = build_discord_embed(FakeDiscord, {"title": "Bingo", "fields": [{"name": "Row 1", "value": "#1 Song"}]})
     assert embed.title == "Bingo"
     assert embed.fields == [{"name": "Row 1", "value": "#1 Song", "inline": False}]
+
+
+
+def test_database_stores_audio_blobs_and_upload_reviews(tmp_path):
+    from saba_radio.database import RadioDatabase
+    db = RadioDatabase(str(tmp_path / "radio.sqlite3"))
+    song = tmp_path / "listener_song.wav"
+    song.write_bytes(b"audio-bytes")
+
+    db.import_audio_file(str(song), "audio/wav")
+    restored = db.materialize_audio_file(str(song), str(tmp_path / "cache"))
+    assert Path(restored).read_bytes() == b"audio-bytes"
+
+    request_id = db.add_upload_request("listener_song.wav", str(song), "Alice")
+    assert db.upload_requests()[0]["id"] == request_id
+    reviewed = db.review_upload_request(request_id, "approved", "ok")
+    assert reviewed["status"] == "approved"
+    assert db.upload_requests() == []
+
+
+def test_discord_feature_config_round_trip(tmp_path):
+    from saba_radio.config import AppConfig
+    path = tmp_path / "config.json"
+    cfg = AppConfig()
+    cfg.discord_features.request_command_enabled = False
+    cfg.discord_features.send_audio_files = True
+    cfg.save(path)
+
+    loaded = AppConfig.load(path)
+    assert loaded.discord_features.request_command_enabled is False
+    assert loaded.discord_features.send_audio_files is True
