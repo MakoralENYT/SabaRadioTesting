@@ -228,11 +228,13 @@ class BingoCard:
     def render_discord_grid(self) -> dict:
         fields = []
         for row_index, row in enumerate(self.squares):
+            values = []
             for column_index, square in enumerate(row):
                 marked = (row_index, column_index) in self.marked
                 slot = self.slot_for_position(row_index, column_index)
                 status = "✅" if marked else "⬜"
-                fields.append({"name": f"{status} Slot #{slot}", "value": f"Find: {square}", "inline": True})
+                values.append(f"{status} **#{slot}** {square}")
+            fields.append({"name": f"Row {row_index + 1}", "value": truncate_discord_field(" | ".join(values)), "inline": False})
         return {"fields": fields}
 
 
@@ -477,3 +479,9 @@ def display_song_name(track: str) -> str:
 
 def normalize_song_key(track: str) -> str:
     return display_song_name(track).casefold().strip()
+
+
+def truncate_discord_field(value: str, limit: int = 1024) -> str:
+    if len(value) <= limit:
+        return value
+    return value[: max(0, limit - 1)] + "…"

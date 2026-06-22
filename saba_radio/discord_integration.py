@@ -71,11 +71,11 @@ class DiscordRadioBot:
         @bot.command()
         async def history(ctx):
             if not self.community: await ctx.send('Community features are not enabled'); return
-            await ctx.send(embed=discord.Embed(**self.community.history_embed()))
+            await ctx.send(embed=build_discord_embed(discord, self.community.history_embed()))
         @bot.command()
         async def upcoming(ctx):
             if not self.community: await ctx.send('Community features are not enabled'); return
-            await ctx.send(embed=discord.Embed(**self.community.queue_embed(self.queue.upcoming(10))))
+            await ctx.send(embed=build_discord_embed(discord, self.community.queue_embed(self.queue.upcoming(10))))
         @bot.command()
         async def vote(ctx, *, song: str):
             if not self.community: await ctx.send('Community features are not enabled'); return
@@ -90,7 +90,7 @@ class DiscordRadioBot:
         @bingo.command(name='card')
         async def bingo_card(ctx, game_id: str = 'main'):
             if not self.community or game_id not in self.community.bingo_games: await ctx.send('No active bingo game'); return
-            card=self.community.bingo_card(game_id, str(ctx.author.id), str(ctx.author)); await ctx.send(embed=discord.Embed(**self.community.bingo_embed(game_id, str(ctx.author.id))))
+            card=self.community.bingo_card(game_id, str(ctx.author.id), str(ctx.author)); await ctx.send(embed=build_discord_embed(discord, self.community.bingo_embed(game_id, str(ctx.author.id))))
         @bingo.command(name='board')
         async def bingo_board(ctx, game_id: str = 'main'):
             if not self.community or game_id not in self.community.bingo_games: await ctx.send('No active bingo game'); return
@@ -115,3 +115,18 @@ class DiscordRadioBot:
     def run(self) -> None:
         if not self.token: raise RuntimeError('Discord token is not configured.')
         self.create_bot().run(self.token)
+
+
+def build_discord_embed(discord_module, payload: dict):
+    embed = discord_module.Embed(
+        title=payload.get("title"),
+        description=payload.get("description"),
+        color=payload.get("color"),
+    )
+    for field in payload.get("fields", []):
+        embed.add_field(
+            name=field.get("name", " "),
+            value=field.get("value", " "),
+            inline=field.get("inline", False),
+        )
+    return embed

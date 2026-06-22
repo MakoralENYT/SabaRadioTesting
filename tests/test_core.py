@@ -149,10 +149,31 @@ def test_numbered_bingo_grid_and_slot_verification():
     card = community.bingo_card("grid", "listener-grid", "Grid Listener")
 
     assert "#1:" in card.render_text()
-    assert card.render_discord_grid()["fields"][0]["name"].endswith("Slot #1")
+    assert card.render_discord_grid()["fields"][0]["name"] == "Row 1"
 
     song = card.song_at_slot(1)
     assert community.verify_bingo_slot("grid", "listener-grid", 1) is False
     community.record_play(song)
     assert community.verify_bingo_slot("grid", "listener-grid", 1) is True
     assert (0, 0) in card.marked
+
+
+def test_discord_embed_builder_adds_fields_without_constructor_fields():
+    from saba_radio.discord_integration import build_discord_embed
+
+    class FakeEmbed:
+        def __init__(self, title=None, description=None, color=None):
+            self.title = title
+            self.description = description
+            self.color = color
+            self.fields = []
+
+        def add_field(self, name, value, inline=False):
+            self.fields.append({"name": name, "value": value, "inline": inline})
+
+    class FakeDiscord:
+        Embed = FakeEmbed
+
+    embed = build_discord_embed(FakeDiscord, {"title": "Bingo", "fields": [{"name": "Row 1", "value": "#1 Song"}]})
+    assert embed.title == "Bingo"
+    assert embed.fields == [{"name": "Row 1", "value": "#1 Song", "inline": False}]
