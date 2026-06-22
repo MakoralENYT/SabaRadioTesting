@@ -65,6 +65,9 @@ class AppConfig:
         app_fields = {item.name for item in fields(cls)}
         audio = AudioConfig(**{key: value for key, value in audio_data.items() if key in audio_fields})
         discord_features = DiscordFeatureConfig(**{key: value for key, value in data.get('discord_features', {}).items() if key in discord_feature_fields})
+        for key in ("enabled_patterns", "slot_task_templates"):
+            if key in bingo_data:
+                bingo_data[key] = tuple(bingo_data[key])
         if "custom_patterns" in bingo_data:
             bingo_data["custom_patterns"] = tuple(
                 BingoPattern(

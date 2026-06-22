@@ -208,3 +208,29 @@ def test_discord_feature_config_round_trip(tmp_path):
     loaded = AppConfig.load(path)
     assert loaded.discord_features.request_command_enabled is False
     assert loaded.discord_features.send_audio_files is True
+
+
+
+def test_bingo_cards_use_configurable_tasks_and_unique_listener_randomization():
+    from saba_radio.community import BingoConfig, CommunityManager
+    songs = [f"Config Song {index}" for index in range(24)]
+    config = BingoConfig(
+        seed="custom-bingo",
+        card_title_template="🎧 {title} for {listener}",
+        card_theme="neon",
+        marked_emoji="🟩",
+        unmarked_emoji="⬛",
+        slot_task_templates=("Find the hook in {song}", "Name the track: {song}"),
+    )
+    community = CommunityManager()
+    game = community.start_bingo("custom", "Custom Bingo", songs, config=config)
+    alice = community.bingo_card("custom", "alice", "Alice")
+    bob = community.bingo_card("custom", "bob", "Bob")
+
+    assert alice.squares != bob.squares
+    assert alice.marked_emoji == "🟩"
+    assert alice.unmarked_emoji == "⬛"
+    assert any("Config Song" in task for row in alice.tasks for task in row)
+    embed = community.bingo_embed("custom", "alice")
+    assert embed["title"] == "🎧 Custom Bingo for Alice"
+    assert "Theme: **neon**" in embed["fields"][0]["value"]

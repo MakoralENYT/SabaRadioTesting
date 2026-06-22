@@ -81,6 +81,19 @@ class BingoConfig:
     size: int = 5
     free_space: bool = True
     free_space_label: str = "FREE SPACE"
+    card_title_template: str = "🎵 {title} — {listener}"
+    card_theme: str = "midnight"
+    accent_color: int = 0xF59E0B
+    marked_emoji: str = "✅"
+    unmarked_emoji: str = "⬜"
+    instructions: str = "Use `!bingo verify <slot>` when you hear or notice that song."
+    reveal_song_names: bool = True
+    slot_task_templates: tuple[str, ...] = (
+        "Hear **{song}**",
+        "Catch a lyric, hook, or chorus from **{song}**",
+        "Notice when **{song}** starts playing",
+        "Verify the audience spotted **{song}**",
+    )
     enabled_patterns: tuple[str, ...] = ("line",)
     max_cards_per_listener: int = 1
     allow_late_join: bool = True
@@ -119,11 +132,16 @@ class BingoCard:
     listener_id: str
     size: int
     squares: list[list[str]]
+    tasks: list[list[str]] | None = None
     marked: set[tuple[int, int]] = field(default_factory=set)
+    marked_emoji: str = "✅"
+    unmarked_emoji: str = "⬜"
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     free_space_label: str = "FREE SPACE"
 
     def __post_init__(self) -> None:
+        if self.tasks is None:
+            self.tasks = [[square for square in row] for row in self.squares]
         center = self.size // 2
         if self.size % 2 == 1 and self.squares[center][center] == self.free_space_label:
             self.marked.add((center, center))
@@ -139,6 +157,16 @@ class BingoCard:
     def song_at_slot(self, slot: int) -> str:
         row, column = self.position_for_slot(slot)
         return self.squares[row][column]
+
+    def task_at_slot(self, slot: int) -> str:
+        row, column = self.position_for_slot(slot)
+        return self.tasks[row][column]
+
+    def display_label(self, row: int, column: int, reveal_song: bool = True) -> str:
+        task = self.tasks[row][column]
+        if reveal_song:
+            return task
+        return task.replace(self.squares[row][column], "???")
 
     def _matches_square(self, square: str, track: str, exact: bool = False) -> bool:
         if square == self.free_space_label:
@@ -195,6 +223,7 @@ class BingoCard:
             "listener_id": self.listener_id,
             "size": self.size,
             "squares": self.squares,
+            "tasks": self.tasks,
             "marked": list(self.marked),
             "created_at": self.created_at.isoformat(),
             "free_space_label": self.free_space_label,
@@ -207,9 +236,12 @@ class BingoCard:
             listener_id=data["listener_id"],
             size=int(data["size"]),
             squares=data["squares"],
+            tasks=data.get("tasks"),
             marked={tuple(item) for item in data.get("marked", [])},
             created_at=datetime.fromisoformat(data["created_at"]) if data.get("created_at") else datetime.now(UTC),
             free_space_label=data.get("free_space_label", "FREE SPACE"),
+            marked_emoji=data.get("marked_emoji", "✅"),
+            unmarked_emoji=data.get("unmarked_emoji", "⬜"),
         )
 
     def render_text(self, reveal_unmarked: bool = True) -> str:
@@ -218,22 +250,22 @@ class BingoCard:
             rendered = []
             for column_index, square in enumerate(row):
                 marked = (row_index, column_index) in self.marked
-                prefix = "✅" if marked else "⬜"
-                label = square if marked or reveal_unmarked else "???"
+                prefix = self.marked_emoji if marked else self.unmarked_emoji
+                label = self.display_label(row_index, column_index, reveal_song=marked or reveal_unmarked)
                 slot = self.slot_for_position(row_index, column_index)
                 rendered.append(f"{prefix} #{slot}: {label}")
             rows.append(" | ".join(rendered))
         return "\n".join(rows)
 
-    def render_discord_grid(self) -> dict:
+    def render_discord_grid(self, reveal_song_names: bool = True) -> dict:
         fields = []
         for row_index, row in enumerate(self.squares):
             values = []
             for column_index, square in enumerate(row):
                 marked = (row_index, column_index) in self.marked
                 slot = self.slot_for_position(row_index, column_index)
-                status = "✅" if marked else "⬜"
-                values.append(f"{status} **#{slot}** {square}")
+                status = self.marked_emoji if marked else self.unmarked_emoji
+                values.append(f"{status} **#{slot}** {self.display_label(row_index, column_index, reveal_song=reveal_song_names)}")
             fields.append({"name": f"Row {row_index + 1}", "value": truncate_discord_field(" | ".join(values)), "inline": False})
         return {"fields": fields}
 
@@ -268,19 +300,36 @@ class BingoGame:
             card_seed = f"{self.config.seed}:{self.game_id}:{listener_id}:{len(self.cards)}"
         rng = random.Random(card_seed)
         picks = rng.sample(pool, needed)
+        templates = tuple(self.config.slot_task_templates) or ("Hear **{song}**",)
         squares: list[list[str]] = []
+        tasks: list[list[str]] = []
         cursor = 0
         center = self.config.size // 2
         for row in range(self.config.size):
             line: list[str] = []
+            task_line: list[str] = []
             for column in range(self.config.size):
                 if self.config.free_space and self.config.size % 2 == 1 and row == center and column == center:
                     line.append(self.config.free_space_label)
+                    task_line.append(f"🌟 {self.config.free_space_label}")
                 else:
-                    line.append(picks[cursor])
+                    song = picks[cursor]
+                    line.append(song)
+                    template = rng.choice(templates)
+                    task_line.append(template.format(song=song, slot=(row * self.config.size) + column + 1))
                     cursor += 1
             squares.append(line)
-        card = BingoCard(f"{self.game_id}:{listener_id}:{len(self.cards) + 1}", listener_id, self.config.size, squares, free_space_label=self.config.free_space_label)
+            tasks.append(task_line)
+        card = BingoCard(
+            f"{self.game_id}:{listener_id}:{len(self.cards) + 1}",
+            listener_id,
+            self.config.size,
+            squares,
+            tasks=tasks,
+            free_space_label=self.config.free_space_label,
+            marked_emoji=self.config.marked_emoji,
+            unmarked_emoji=self.config.unmarked_emoji,
+        )
         if self.config.allow_late_join:
             for track in self.played_tracks:
                 card.mark_track(track, exact=self.config.require_exact_title_match)
@@ -431,11 +480,14 @@ class CommunityManager:
         status = game.card_status(listener_id)
         near = status["near_bingos"]
         near_text = "\n".join(f"{name}: needs {', '.join(missing)}" for name, missing in near[:5]) or "No near-bingos yet"
+        profile = self.profile(listener_id)
         return {
-            "title": f"{game.title} — {listener_id}",
-            "description": "Use `!bingo verify <slot>` when you hear or notice that song.",
-            "color": 0xF59E0B,
-            "fields": card.render_discord_grid()["fields"] + [
+            "title": game.config.card_title_template.format(title=game.title, listener=profile.display_name, game_id=game_id),
+            "description": game.config.instructions,
+            "color": game.config.accent_color,
+            "fields": [
+                {"name": "Card", "value": f"`{card.card_id}` • Theme: **{game.config.card_theme}**", "inline": False},
+            ] + card.render_discord_grid(game.config.reveal_song_names)["fields"] + [
                 {"name": "Completion", "value": f"{status['completion_percent']}%", "inline": True},
                 {"name": "Near Bingos", "value": near_text, "inline": False},
             ],

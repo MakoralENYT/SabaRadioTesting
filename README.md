@@ -70,3 +70,15 @@ The in-app command prompt currently supports:
 
 - `!shout <message>` — send a plain message through the configured Discord webhook.
 - `!requests on` / `!requests off` — toggle the Discord request command for events such as Requesting Hour.
+
+## Configurable bingo cards
+
+The `bingo` section in `saba_radio.json` can now style and randomize each listener card with:
+
+- `card_title_template`, `card_theme`, and `accent_color` for branded Discord embeds.
+- `marked_emoji` and `unmarked_emoji` for custom square states.
+- `instructions` for the text above each card.
+- `reveal_song_names` to hide or show song names in unmarked task text.
+- `slot_task_templates`, where each template can use `{song}` and `{slot}` so every listener gets randomized tasks such as finding a hook, lyric, chorus, or track intro.
+
+Each listener receives their own randomized card from the active song pool while keeping the same card stable for that listener when deterministic cards are enabled.
