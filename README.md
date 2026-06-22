@@ -49,11 +49,12 @@ pip install discord.py
 Available commands:
 
 - `!now` — current now-playing text.
-- `!request <song>` — add a priority listener request.
+- `!request <song>` — add a priority listener request with smart/fuzzy matching, so partial names and close spellings can find the library track.
 - `!queue` / `!upcoming` — show queued/upcoming songs.
 - `!history` — show recent played songs.
 - `!vote <song>` — vote for a song.
 - `!dedicate <song> <message>` — save a listener dedication.
-- `!bingo card [game_id]` — get your bingo card; default game is `main`.
+- `!bingo card [game_id]` — get your embedded numbered bingo grid; default game is `main`. Each numbered slot tells listeners which song to notice.
 - `!bingo board [game_id]` — show bingo leaderboard progress.
 - `!bingo status [game_id]` — show your bingo completion and win status.
+- `!bingo verify <slot> [game_id]` — verify a numbered slot after the matching song has played.

@@ -53,7 +53,7 @@ class RadioGUI:
         if self.discord_thread and self.discord_thread.is_alive():
             self.set_status('Discord bot is already running')
             return
-        bot=DiscordRadioBot(self.queue, lambda: self.song_var.get(), self.config.discord_token, self.community)
+        bot=DiscordRadioBot(self.queue, lambda: self.song_var.get(), self.config.discord_token, self.community, lambda: self.library.paths)
         self.discord_thread=threading.Thread(target=bot.run, daemon=True)
         self.discord_thread.start()
         self.set_status('Discord bot started')

@@ -119,7 +119,7 @@ def test_advanced_bingo_config_patterns_near_bingo_and_export():
     exported = game.export_cards()
     game.import_cards(exported)
     assert game.cards["listener-advanced"].to_dict()["squares"] == card.to_dict()["squares"]
-    assert community.bingo_embed("advanced", "listener-advanced")["fields"][0]["name"] == "Completion"
+    assert any(field["name"] == "Completion" for field in community.bingo_embed("advanced", "listener-advanced")["fields"])
 
 
 def test_app_config_round_trips_custom_bingo_patterns(tmp_path):
@@ -132,3 +132,27 @@ def test_app_config_round_trips_custom_bingo_patterns(tmp_path):
     loaded = AppConfig.load(path)
     assert loaded.bingo.custom_patterns[0].name == "Tiny Corner"
     assert (0, 0) in loaded.bingo.custom_patterns[0].positions
+
+
+
+def test_smart_queue_fuzzy_search_finds_close_song_names():
+    paths = ["/music/Night Drive Anthem.mp3", "/music/Morning Light.wav"]
+    assert SmartQueue.search(paths, "nite drive")[0] == "/music/Night Drive Anthem.mp3"
+    assert SmartQueue.search(paths, "morning")[0] == "/music/Morning Light.wav"
+
+
+def test_numbered_bingo_grid_and_slot_verification():
+    from saba_radio.community import CommunityManager
+    songs = [f"Grid Song {index}" for index in range(24)]
+    community = CommunityManager()
+    game = community.start_bingo("grid", "Grid Bingo", songs)
+    card = community.bingo_card("grid", "listener-grid", "Grid Listener")
+
+    assert "#1:" in card.render_text()
+    assert card.render_discord_grid()["fields"][0]["name"].endswith("Slot #1")
+
+    song = card.song_at_slot(1)
+    assert community.verify_bingo_slot("grid", "listener-grid", 1) is False
+    community.record_play(song)
+    assert community.verify_bingo_slot("grid", "listener-grid", 1) is True
+    assert (0, 0) in card.marked

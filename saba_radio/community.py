@@ -128,18 +128,45 @@ class BingoCard:
         if self.size % 2 == 1 and self.squares[center][center] == self.free_space_label:
             self.marked.add((center, center))
 
-    def mark_track(self, track: str, exact: bool = False) -> list[tuple[int, int]]:
+    def slot_for_position(self, row: int, column: int) -> int:
+        return (row * self.size) + column + 1
+
+    def position_for_slot(self, slot: int) -> tuple[int, int]:
+        if slot < 1 or slot > self.size * self.size:
+            raise ValueError(f"Slot must be between 1 and {self.size * self.size}")
+        return divmod(slot - 1, self.size)
+
+    def song_at_slot(self, slot: int) -> str:
+        row, column = self.position_for_slot(slot)
+        return self.squares[row][column]
+
+    def _matches_square(self, square: str, track: str, exact: bool = False) -> bool:
+        if square == self.free_space_label:
+            return False
         normalized = normalize_song_key(track)
+        candidate = normalize_song_key(square)
+        return candidate == normalized if exact else candidate == normalized or normalized in candidate or candidate in normalized
+
+    def mark_track(self, track: str, exact: bool = False) -> list[tuple[int, int]]:
         hits: list[tuple[int, int]] = []
         for row_index, row in enumerate(self.squares):
             for column_index, square in enumerate(row):
-                candidate = normalize_song_key(square)
-                matched = candidate == normalized if exact else candidate == normalized or normalized in candidate or candidate in normalized
-                if matched:
+                if self._matches_square(square, track, exact=exact):
                     position = (row_index, column_index)
                     self.marked.add(position)
                     hits.append(position)
         return hits
+
+    def verify_slot(self, slot: int, played_tracks: Iterable[str], exact: bool = False) -> bool:
+        row, column = self.position_for_slot(slot)
+        square = self.squares[row][column]
+        if square == self.free_space_label:
+            self.marked.add((row, column))
+            return True
+        if any(self._matches_square(square, track, exact=exact) for track in played_tracks):
+            self.marked.add((row, column))
+            return True
+        return False
 
     def winning_patterns(self, patterns: Iterable[BingoPattern] | None = None) -> list[BingoPattern]:
         available = list(patterns or build_bingo_patterns(self.size, ("line",), {}))
@@ -193,9 +220,20 @@ class BingoCard:
                 marked = (row_index, column_index) in self.marked
                 prefix = "✅" if marked else "⬜"
                 label = square if marked or reveal_unmarked else "???"
-                rendered.append(f"{prefix} {label}")
+                slot = self.slot_for_position(row_index, column_index)
+                rendered.append(f"{prefix} #{slot}: {label}")
             rows.append(" | ".join(rendered))
         return "\n".join(rows)
+
+    def render_discord_grid(self) -> dict:
+        fields = []
+        for row_index, row in enumerate(self.squares):
+            for column_index, square in enumerate(row):
+                marked = (row_index, column_index) in self.marked
+                slot = self.slot_for_position(row_index, column_index)
+                status = "✅" if marked else "⬜"
+                fields.append({"name": f"{status} Slot #{slot}", "value": f"Find: {square}", "inline": True})
+        return {"fields": fields}
 
 
 @dataclass(slots=True)
@@ -263,6 +301,10 @@ class BingoGame:
                 self.win_log.append(BingoWin(self.game_id, card.listener_id, card.card_id, [pattern.name for pattern in wins], track))
                 winners.append(card)
         return winners
+
+    def verify_slot(self, listener_id: str, slot: int) -> bool:
+        card = self.cards[listener_id]
+        return card.verify_slot(slot, self.played_tracks, exact=self.config.require_exact_title_match)
 
     def card_status(self, listener_id: str) -> dict:
         card = self.cards[listener_id]
@@ -334,6 +376,9 @@ class CommunityManager:
         self.bingo_games[game_id] = game
         return game
 
+    def verify_bingo_slot(self, game_id: str, listener_id: str, slot: int) -> bool:
+        return self.bingo_games[game_id].verify_slot(listener_id, slot)
+
     def bingo_card(self, game_id: str, listener_id: str, display_name: str) -> BingoCard:
         profile = self.profile(listener_id, display_name)
         game = self.bingo_games[game_id]
@@ -386,9 +431,9 @@ class CommunityManager:
         near_text = "\n".join(f"{name}: needs {', '.join(missing)}" for name, missing in near[:5]) or "No near-bingos yet"
         return {
             "title": f"{game.title} — {listener_id}",
-            "description": f"```{card.render_text()}```",
+            "description": "Use `!bingo verify <slot>` when you hear or notice that song.",
             "color": 0xF59E0B,
-            "fields": [
+            "fields": card.render_discord_grid()["fields"] + [
                 {"name": "Completion", "value": f"{status['completion_percent']}%", "inline": True},
                 {"name": "Near Bingos", "value": near_text, "inline": False},
             ],

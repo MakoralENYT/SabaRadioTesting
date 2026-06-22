@@ -5,6 +5,7 @@ import importlib.util
 import json
 import urllib.request
 from dataclasses import dataclass
+from pathlib import Path
 
 
 @dataclass
@@ -43,8 +44,8 @@ class DiscordWebhookClient:
 
 
 class DiscordRadioBot:
-    def __init__(self, queue, now_playing_provider, token: str = '', community=None) -> None:
-        self.queue=queue; self.now_playing_provider=now_playing_provider; self.token=token; self.community=community
+    def __init__(self, queue, now_playing_provider, token: str = '', community=None, library_provider=None) -> None:
+        self.queue=queue; self.now_playing_provider=now_playing_provider; self.token=token; self.community=community; self.library_provider=library_provider
     def create_bot(self):
         if not importlib.util.find_spec('discord'): raise RuntimeError('Install discord.py for Discord integration.')
         import discord
@@ -55,9 +56,16 @@ class DiscordRadioBot:
         async def now(ctx): await ctx.send(embed=discord.Embed(title='Now Playing', description=str(self.now_playing_provider())))
         @bot.command()
         async def request(ctx, *, song: str):
-            self.queue.add(song, priority=10, requester=str(ctx.author))
-            if self.community: self.community.add_request(str(ctx.author.id), str(ctx.author), song)
-            await ctx.send(f'Queued request: {song}')
+            requested = song
+            matches = self.queue.search(list(self.library_provider() if self.library_provider else []), song)
+            if matches:
+                requested = matches[0]
+            self.queue.add(requested, priority=10, requester=str(ctx.author))
+            if self.community: self.community.add_request(str(ctx.author.id), str(ctx.author), requested)
+            if matches:
+                await ctx.send(f'Queued request: {Path(requested).name}')
+            else:
+                await ctx.send(f'Queued request: {song}')
         @bot.command()
         async def queue(ctx): await ctx.send('\n'.join(self.queue.upcoming(10)) or 'Queue is empty')
         @bot.command()
@@ -78,11 +86,11 @@ class DiscordRadioBot:
             self.community.add_dedication(str(ctx.author.id), str(ctx.author), song, message); await ctx.send(f'Dedication saved for {song}')
         @bot.group()
         async def bingo(ctx):
-            if ctx.invoked_subcommand is None: await ctx.send('Use !bingo card or !bingo board')
+            if ctx.invoked_subcommand is None: await ctx.send('Use !bingo card, !bingo board, !bingo status, or !bingo verify <slot>')
         @bingo.command(name='card')
         async def bingo_card(ctx, game_id: str = 'main'):
             if not self.community or game_id not in self.community.bingo_games: await ctx.send('No active bingo game'); return
-            card=self.community.bingo_card(game_id, str(ctx.author.id), str(ctx.author)); await ctx.send(f'```{card.render_text()}```')
+            card=self.community.bingo_card(game_id, str(ctx.author.id), str(ctx.author)); await ctx.send(embed=discord.Embed(**self.community.bingo_embed(game_id, str(ctx.author.id))))
         @bingo.command(name='board')
         async def bingo_board(ctx, game_id: str = 'main'):
             if not self.community or game_id not in self.community.bingo_games: await ctx.send('No active bingo game'); return
@@ -93,6 +101,16 @@ class DiscordRadioBot:
             game=self.community.bingo_games[game_id]
             if str(ctx.author.id) not in game.cards: await ctx.send('You do not have a card yet. Use !bingo card'); return
             status=game.card_status(str(ctx.author.id)); await ctx.send(f"Completion: {status['completion_percent']}% | Bingo: {status['has_bingo']}")
+        @bingo.command(name='verify')
+        async def bingo_verify(ctx, slot: int, game_id: str = 'main'):
+            if not self.community or game_id not in self.community.bingo_games: await ctx.send('No active bingo game'); return
+            game=self.community.bingo_games[game_id]
+            if str(ctx.author.id) not in game.cards: await ctx.send('You do not have a card yet. Use !bingo card'); return
+            try:
+                verified=self.community.verify_bingo_slot(game_id, str(ctx.author.id), slot)
+            except ValueError as exc:
+                await ctx.send(str(exc)); return
+            await ctx.send(('Verified' if verified else 'Not verified yet') + f' slot #{slot}')
         return bot
     def run(self) -> None:
         if not self.token: raise RuntimeError('Discord token is not configured.')
