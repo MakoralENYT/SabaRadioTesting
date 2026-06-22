@@ -1,0 +1,99 @@
+"""Discord bot and webhook adapters for requests, queue commands, and now-playing posts."""
+from __future__ import annotations
+
+import importlib.util
+import json
+import urllib.request
+from dataclasses import dataclass
+
+
+@dataclass
+class DiscordWebhookClient:
+    """Minimal dependency-free Discord webhook publisher."""
+
+    webhook_url: str = ""
+    username: str = "Saba Radio"
+
+    def enabled(self) -> bool:
+        return bool(self.webhook_url.strip())
+
+    def send_now_playing(self, title: str, artist: str = "") -> bool:
+        if not self.enabled():
+            return False
+        description = f"{artist} — {title}" if artist else title
+        payload = {
+            "username": self.username,
+            "embeds": [
+                {
+                    "title": "Now Playing",
+                    "description": description,
+                    "color": 0x2563EB,
+                }
+            ],
+        }
+        data = json.dumps(payload).encode("utf-8")
+        request = urllib.request.Request(
+            self.webhook_url,
+            data=data,
+            headers={"Content-Type": "application/json", "User-Agent": "SabaRadio/1.0"},
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=5) as response:
+            return 200 <= response.status < 300
+
+
+class DiscordRadioBot:
+    def __init__(self, queue, now_playing_provider, token: str = '', community=None) -> None:
+        self.queue=queue; self.now_playing_provider=now_playing_provider; self.token=token; self.community=community
+    def create_bot(self):
+        if not importlib.util.find_spec('discord'): raise RuntimeError('Install discord.py for Discord integration.')
+        import discord
+        from discord.ext import commands
+        intents=discord.Intents.default(); intents.message_content=True
+        bot=commands.Bot(command_prefix='!', intents=intents)
+        @bot.command()
+        async def now(ctx): await ctx.send(embed=discord.Embed(title='Now Playing', description=str(self.now_playing_provider())))
+        @bot.command()
+        async def request(ctx, *, song: str):
+            self.queue.add(song, priority=10, requester=str(ctx.author))
+            if self.community: self.community.add_request(str(ctx.author.id), str(ctx.author), song)
+            await ctx.send(f'Queued request: {song}')
+        @bot.command()
+        async def queue(ctx): await ctx.send('\n'.join(self.queue.upcoming(10)) or 'Queue is empty')
+        @bot.command()
+        async def history(ctx):
+            if not self.community: await ctx.send('Community features are not enabled'); return
+            await ctx.send(embed=discord.Embed(**self.community.history_embed()))
+        @bot.command()
+        async def upcoming(ctx):
+            if not self.community: await ctx.send('Community features are not enabled'); return
+            await ctx.send(embed=discord.Embed(**self.community.queue_embed(self.queue.upcoming(10))))
+        @bot.command()
+        async def vote(ctx, *, song: str):
+            if not self.community: await ctx.send('Community features are not enabled'); return
+            self.community.vote_song(str(ctx.author.id), str(ctx.author), song); await ctx.send(f'Vote counted for {song}')
+        @bot.command()
+        async def dedicate(ctx, song: str, *, message: str):
+            if not self.community: await ctx.send('Community features are not enabled'); return
+            self.community.add_dedication(str(ctx.author.id), str(ctx.author), song, message); await ctx.send(f'Dedication saved for {song}')
+        @bot.group()
+        async def bingo(ctx):
+            if ctx.invoked_subcommand is None: await ctx.send('Use !bingo card or !bingo board')
+        @bingo.command(name='card')
+        async def bingo_card(ctx, game_id: str = 'main'):
+            if not self.community or game_id not in self.community.bingo_games: await ctx.send('No active bingo game'); return
+            card=self.community.bingo_card(game_id, str(ctx.author.id), str(ctx.author)); await ctx.send(f'```{card.render_text()}```')
+        @bingo.command(name='board')
+        async def bingo_board(ctx, game_id: str = 'main'):
+            if not self.community or game_id not in self.community.bingo_games: await ctx.send('No active bingo game'); return
+            rows=[f'{listener}: {score}' for listener, score in self.community.bingo_games[game_id].leaderboard()[:10]]; await ctx.send('\n'.join(rows) or 'No cards yet')
+        @bingo.command(name='status')
+        async def bingo_status(ctx, game_id: str = 'main'):
+            if not self.community or game_id not in self.community.bingo_games: await ctx.send('No active bingo game'); return
+            game=self.community.bingo_games[game_id]
+            if str(ctx.author.id) not in game.cards: await ctx.send('You do not have a card yet. Use !bingo card'); return
+            status=game.card_status(str(ctx.author.id)); await ctx.send(f"Completion: {status['completion_percent']}% | Bingo: {status['has_bingo']}")
+        return bot
+    def run(self) -> None:
+        if not self.token: raise RuntimeError('Discord token is not configured.')
+        self.create_bot().run(self.token)
