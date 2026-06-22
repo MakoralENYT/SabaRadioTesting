@@ -119,7 +119,7 @@ def test_advanced_bingo_config_patterns_near_bingo_and_export():
     exported = game.export_cards()
     game.import_cards(exported)
     assert game.cards["listener-advanced"].to_dict()["squares"] == card.to_dict()["squares"]
-    assert community.bingo_embed("advanced", "listener-advanced")["fields"][0]["name"] == "Completion"
+    assert any(field["name"] == "Completion" for field in community.bingo_embed("advanced", "listener-advanced")["fields"])
 
 
 def test_app_config_round_trips_custom_bingo_patterns(tmp_path):
@@ -132,3 +132,105 @@ def test_app_config_round_trips_custom_bingo_patterns(tmp_path):
     loaded = AppConfig.load(path)
     assert loaded.bingo.custom_patterns[0].name == "Tiny Corner"
     assert (0, 0) in loaded.bingo.custom_patterns[0].positions
+
+
+
+def test_smart_queue_fuzzy_search_finds_close_song_names():
+    paths = ["/music/Night Drive Anthem.mp3", "/music/Morning Light.wav"]
+    assert SmartQueue.search(paths, "nite drive")[0] == "/music/Night Drive Anthem.mp3"
+    assert SmartQueue.search(paths, "morning")[0] == "/music/Morning Light.wav"
+
+
+def test_numbered_bingo_grid_and_slot_verification():
+    from saba_radio.community import CommunityManager
+    songs = [f"Grid Song {index}" for index in range(24)]
+    community = CommunityManager()
+    game = community.start_bingo("grid", "Grid Bingo", songs)
+    card = community.bingo_card("grid", "listener-grid", "Grid Listener")
+
+    assert "#1:" in card.render_text()
+    assert card.render_discord_grid()["fields"][0]["name"] == "Row 1"
+
+    song = card.song_at_slot(1)
+    assert community.verify_bingo_slot("grid", "listener-grid", 1) is False
+    community.record_play(song)
+    assert community.verify_bingo_slot("grid", "listener-grid", 1) is True
+    assert (0, 0) in card.marked
+
+
+def test_discord_embed_builder_adds_fields_without_constructor_fields():
+    from saba_radio.discord_integration import build_discord_embed
+
+    class FakeEmbed:
+        def __init__(self, title=None, description=None, color=None):
+            self.title = title
+            self.description = description
+            self.color = color
+            self.fields = []
+
+        def add_field(self, name, value, inline=False):
+            self.fields.append({"name": name, "value": value, "inline": inline})
+
+    class FakeDiscord:
+        Embed = FakeEmbed
+
+    embed = build_discord_embed(FakeDiscord, {"title": "Bingo", "fields": [{"name": "Row 1", "value": "#1 Song"}]})
+    assert embed.title == "Bingo"
+    assert embed.fields == [{"name": "Row 1", "value": "#1 Song", "inline": False}]
+
+
+
+def test_database_stores_audio_blobs_and_upload_reviews(tmp_path):
+    from saba_radio.database import RadioDatabase
+    db = RadioDatabase(str(tmp_path / "radio.sqlite3"))
+    song = tmp_path / "listener_song.wav"
+    song.write_bytes(b"audio-bytes")
+
+    db.import_audio_file(str(song), "audio/wav")
+    restored = db.materialize_audio_file(str(song), str(tmp_path / "cache"))
+    assert Path(restored).read_bytes() == b"audio-bytes"
+
+    request_id = db.add_upload_request("listener_song.wav", str(song), "Alice")
+    assert db.upload_requests()[0]["id"] == request_id
+    reviewed = db.review_upload_request(request_id, "approved", "ok")
+    assert reviewed["status"] == "approved"
+    assert db.upload_requests() == []
+
+
+def test_discord_feature_config_round_trip(tmp_path):
+    from saba_radio.config import AppConfig
+    path = tmp_path / "config.json"
+    cfg = AppConfig()
+    cfg.discord_features.request_command_enabled = False
+    cfg.discord_features.send_audio_files = True
+    cfg.save(path)
+
+    loaded = AppConfig.load(path)
+    assert loaded.discord_features.request_command_enabled is False
+    assert loaded.discord_features.send_audio_files is True
+
+
+
+def test_bingo_cards_use_configurable_tasks_and_unique_listener_randomization():
+    from saba_radio.community import BingoConfig, CommunityManager
+    songs = [f"Config Song {index}" for index in range(24)]
+    config = BingoConfig(
+        seed="custom-bingo",
+        card_title_template="🎧 {title} for {listener}",
+        card_theme="neon",
+        marked_emoji="🟩",
+        unmarked_emoji="⬛",
+        slot_task_templates=("Find the hook in {song}", "Name the track: {song}"),
+    )
+    community = CommunityManager()
+    game = community.start_bingo("custom", "Custom Bingo", songs, config=config)
+    alice = community.bingo_card("custom", "alice", "Alice")
+    bob = community.bingo_card("custom", "bob", "Bob")
+
+    assert alice.squares != bob.squares
+    assert alice.marked_emoji == "🟩"
+    assert alice.unmarked_emoji == "⬛"
+    assert any("Config Song" in task for row in alice.tasks for task in row)
+    embed = community.bingo_embed("custom", "alice")
+    assert embed["title"] == "🎧 Custom Bingo for Alice"
+    assert "Theme: **neon**" in embed["fields"][0]["value"]

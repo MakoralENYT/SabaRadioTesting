@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import deque
 from datetime import UTC, datetime
 from pathlib import Path
+from difflib import SequenceMatcher
 import heapq, random
 from .config import SUPPORTED_EXTENSIONS
 from .models import QueueItem
@@ -31,4 +32,21 @@ class SmartQueue:
         return sorted(str(p) for p in root.rglob('*') if p.suffix.lower() in SUPPORTED_EXTENSIONS) if root.exists() else []
     @staticmethod
     def search(paths: list[str], query: str) -> list[str]:
-        q=query.lower(); return [p for p in paths if q in Path(p).name.lower()]
+        q = normalize_search_text(query)
+        if not q:
+            return paths[:]
+        scored: list[tuple[float, str]] = []
+        for path in paths:
+            name = normalize_search_text(Path(path).stem)
+            filename = normalize_search_text(Path(path).name)
+            if q in name or q in filename:
+                score = 1.0 + (len(q) / max(len(name), 1))
+            else:
+                score = SequenceMatcher(None, q, name).ratio()
+            if score >= 0.45:
+                scored.append((score, path))
+        return [path for _, path in sorted(scored, key=lambda item: (-item[0], Path(item[1]).name.lower()))]
+
+
+def normalize_search_text(value: str) -> str:
+    return " ".join("".join(char.casefold() if char.isalnum() else " " for char in value).split())

@@ -28,16 +28,26 @@ class AudioConfig:
     eq_gains_db: dict[int, float] = field(default_factory=lambda: {band: 0.0 for band in EQ_BANDS_HZ})
 
 @dataclass
+class DiscordFeatureConfig:
+    request_command_enabled: bool = True
+    upload_command_enabled: bool = True
+    bingo_command_enabled: bool = True
+    send_audio_files: bool = False
+
+
+@dataclass
 class AppConfig:
     audio: AudioConfig = field(default_factory=AudioConfig)
     bingo: BingoConfig = field(default_factory=BingoConfig)
     database_path: str = 'saba_radio.sqlite3'
     recordings_folder: str = 'recordings'
     archive_folder: str = 'archives'
+    upload_folder: str = 'uploads'
     web_host: str = '127.0.0.1'
     web_port: int = 8765
     discord_token: str = ''
     discord_webhook_url: str = ''
+    discord_features: DiscordFeatureConfig = field(default_factory=DiscordFeatureConfig)
     log_file: str = 'saba_radio.log'
     theme: str = 'dark'
 
@@ -50,9 +60,14 @@ class AppConfig:
         audio_data = data.get('audio', {})
         bingo_data = data.get('bingo', {})
         audio_fields = {item.name for item in fields(AudioConfig)}
+        discord_feature_fields = {item.name for item in fields(DiscordFeatureConfig)}
         bingo_fields = {item.name for item in fields(BingoConfig)}
         app_fields = {item.name for item in fields(cls)}
         audio = AudioConfig(**{key: value for key, value in audio_data.items() if key in audio_fields})
+        discord_features = DiscordFeatureConfig(**{key: value for key, value in data.get('discord_features', {}).items() if key in discord_feature_fields})
+        for key in ("enabled_patterns", "slot_task_templates"):
+            if key in bingo_data:
+                bingo_data[key] = tuple(bingo_data[key])
         if "custom_patterns" in bingo_data:
             bingo_data["custom_patterns"] = tuple(
                 BingoPattern(
@@ -66,6 +81,7 @@ class AppConfig:
         data = {key: value for key, value in data.items() if key in app_fields}
         data['audio'] = audio
         data['bingo'] = bingo
+        data['discord_features'] = discord_features
         return cls(**data)
 
     def save(self, path: str | Path = 'saba_radio.json') -> None:

@@ -49,11 +49,36 @@ pip install discord.py
 Available commands:
 
 - `!now` — current now-playing text.
-- `!request <song>` — add a priority listener request.
+- `!request <song>` — add a priority listener request with smart/fuzzy matching, so partial names and close spellings can find the library track. This can be toggled for Requesting Hour events in the app.
 - `!queue` / `!upcoming` — show queued/upcoming songs.
 - `!history` — show recent played songs.
 - `!vote <song>` — vote for a song.
 - `!dedicate <song> <message>` — save a listener dedication.
-- `!bingo card [game_id]` — get your bingo card; default game is `main`.
+- `!bingo card [game_id]` — get your embedded numbered bingo grid; default game is `main`. Each numbered slot tells listeners which song to notice.
 - `!bingo board [game_id]` — show bingo leaderboard progress.
 - `!bingo status [game_id]` — show your bingo completion and win status.
+- `!bingo verify <slot> [game_id]` — verify a numbered slot after the matching song has played.
+- `!upload` with an attached audio file — submit a listener song to the upload review web panel for approval or denial.
+- `!sendfile <song>` — optionally send a matched audio file through Discord when the app setting is enabled.
+
+
+## Upload review and operator commands
+
+The desktop app includes a **Start Upload Review Panel** button. Pending Discord `!upload` files appear in the local web panel where you can approve or deny them before they are copied into the music folder. Scanned music files are also mirrored into SQLite as audio blobs so the library database can be used as the source of record.
+
+The in-app command prompt currently supports:
+
+- `!shout <message>` — send a plain message through the configured Discord webhook.
+- `!requests on` / `!requests off` — toggle the Discord request command for events such as Requesting Hour.
+
+## Configurable bingo cards
+
+The `bingo` section in `saba_radio.json` can now style and randomize each listener card with:
+
+- `card_title_template`, `card_theme`, and `accent_color` for branded Discord embeds.
+- `marked_emoji` and `unmarked_emoji` for custom square states.
+- `instructions` for the text above each card.
+- `reveal_song_names` to hide or show song names in unmarked task text.
+- `slot_task_templates`, where each template can use `{song}` and `{slot}` so every listener gets randomized tasks such as finding a hook, lyric, chorus, or track intro.
+
+Each listener receives their own randomized card from the active song pool while keeping the same card stable for that listener when deterministic cards are enabled.

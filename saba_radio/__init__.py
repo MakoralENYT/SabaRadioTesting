@@ -1,5 +1,5 @@
 """Saba Radio professional automation platform."""
-from .config import AppConfig, AudioConfig, SUPPORTED_EXTENSIONS
+from .config import AppConfig, AudioConfig, DiscordFeatureConfig, SUPPORTED_EXTENSIONS
 from .database import RadioDatabase
 from .metadata import MetadataReader
 from .queueing import SmartQueue
